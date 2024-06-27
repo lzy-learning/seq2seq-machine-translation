@@ -3,6 +3,9 @@ __pycache__/
 *.py[cod]
 *$py.class
 
+checkpoints/
+.idea/
+
 # C extensions
 *.so
 
