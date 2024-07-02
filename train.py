@@ -1,22 +1,20 @@
-from io import open
-import re
-import unicodedata
-import re
+import os
+import pickle
+import time
 import random
 import torch
 import torch.nn as nn
 from torch import optim
 
-import numpy as np
 from torch.utils.data import TensorDataset, DataLoader, RandomSampler
 
 from progress.bar import Bar
 from config import config
-from dataset.zh2enDataset import Zh2EnDataset, get_data, sentence2tensor, indices2sentence
+from dataset.zh2enDataset import Zh2EnDataset, get_data, sentence2tensor, indices2sentence, index2word
 from model.model import EncoderRNN, AttnDecoderRNN
 from utils.utils import AverageMeter
-from tqdm import tqdm
 from nltk.translate.bleu_score import sentence_bleu
+from tensorboardX import SummaryWriter
 
 
 def train():
@@ -51,6 +49,24 @@ def train():
 
     # 损失函数使用NLLLoss，即负对数自然损失：-log(p_y)
     criterion = nn.NLLLoss()
+
+    '''
+    是否恢复训练
+    '''
+    best_bleu = -1.0
+    if config.is_resume:
+        assert os.path.exists(config.resume_path)
+        print('resuming train......')
+        checkpoint = torch.load(config.resume_path)
+        best_bleu = checkpoint['best_bleu']
+        config.start_epoch = checkpoint['epoch']
+        encoder.load_state_dict(checkpoint['encoder_state_dict'])
+        decoder.load_state_dict(checkpoint['decoder_state_dict'])
+        encoder_optimizer.load_state_dict(checkpoint['encoder_optimizer'])
+        decoder_optimizer.load_state_dict(checkpoint['decoder_optimizer'])
+
+    # 日志用SummaryWriter，记录结果用tensorboard打开
+    writer = SummaryWriter(config.logdir)
 
     '''
     开始训练
@@ -96,17 +112,19 @@ def train():
         bar.finish()
 
         '''
-        测试
+        验证
         '''
+        bar = Bar(f"[Epoch {epoch}/{config.total_epoch}]Validate", max=len(valid_pairs))
+        valid_bleu4 = AverageMeter()
+
+        display_sentences = []
+
         with torch.no_grad():
-            bar = Bar(f"[Epoch {epoch}/{config.total_epoch}]Validate", max=len(valid_pairs))
-            valid_bleu4 = AverageMeter()
-
             for valid_input, valid_output in valid_pairs:
-                valid_input = sentence2tensor(train_dataset.input_lang, valid_input)
-                valid_input = valid_input.to(config.device)
+                valid_tensor = sentence2tensor(train_dataset.input_lang, valid_input)
+                valid_tensor = valid_tensor.to(config.device)
 
-                encoder_outputs, encoder_hidden = encoder(valid_input)
+                encoder_outputs, encoder_hidden = encoder(valid_tensor)
                 decoder_outputs, decoder_hidden, decoder_attn = decoder(encoder_outputs, encoder_hidden)
 
                 _, topi = decoder_outputs.topk(1)
@@ -115,9 +133,8 @@ def train():
                 decoded_words = []
                 for idx in decoded_ids:
                     if idx.item() == config.EOS_token:
-                        decoded_words.append('<EOS>')
                         break
-                    decoded_words.append(train_dataset.output_lang.index2word[idx.item()])
+                    decoded_words.append(index2word(train_dataset.output_lang, idx.item()))
 
                 # 这个函数默认计算bleu-4
                 bleu4 = sentence_bleu([valid_output], decoded_words)
@@ -125,7 +142,48 @@ def train():
 
                 bar.suffix = 'BLEU-4 score: {:.4f}'.format(valid_bleu4.avg)
                 bar.next()
+
+                # 保存要展示的预测结果进行观察，这里每个epoch打印三个句子
+                if random.random() < 0.3 and len(display_sentences) < 3:
+                    display_sentences.append((valid_input, valid_output, decoded_words))
             bar.finish()
+
+            for (src, target, predict) in display_sentences:
+                print('-----------------------------------')
+                print('input sentence: {}'.format(''.join(src)))
+                print('target sentence: {}'.format(' '.join(target)))
+                print('predict sentence: {}'.format(' '.join(predict)))
+            print('=============>BLEU-4: {:.4f}<============='.format(valid_bleu4.avg))
+
+        '''
+        保存模型参数，每10个epoch保存一次
+        '''
+        is_best = best_bleu < valid_bleu4.avg
+        best_bleu = max(best_bleu, valid_bleu4.avg)
+        checkpoint = {
+            'epoch': epoch + 1,
+            'best_bleu': best_bleu,
+            'encoder_state_dict': encoder.state_dict(),
+            'decoder_state_dict': decoder.state_dict(),
+            'encoder_optimizer': encoder_optimizer.state_dict(),
+            'decoder_optimizer': decoder_optimizer.state_dict()
+        }
+        if is_best:
+            torch.save(checkpoint, config.best_path)
+        if (epoch + 1) % 10 == 0:
+            torch.save(checkpoint, config.resume_file)
+
+        writer.add_scalar('train_loss', train_loss.avg, epoch)
+        writer.add_scalar('valid_bleu4', valid_bleu4.avg, epoch)
+    writer.close()
+    print('Train Finish')
+    print('Best bleu-4: {:.4f}'.format(best_bleu))
+
+    # 保存词典
+    with open(config.input_lang_path, 'wb') as fp:
+        pickle.dump(train_dataset.input_lang, fp)
+    with open(config.output_lang_path, 'wb') as fp:
+        pickle.dump(train_dataset.output_lang, fp)
 
 
 if __name__ == '__main__':

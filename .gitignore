@@ -5,7 +5,9 @@ __pycache__/
 
 checkpoints/
 .idea/
-
+data/
+logdir/
+log/
 # C extensions
 *.so
 

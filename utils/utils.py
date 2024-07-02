@@ -21,3 +21,4 @@ class AverageMeter(object):
         self.sum += val * n
         self.cnt += n
         self.avg = self.sum / self.cnt
+

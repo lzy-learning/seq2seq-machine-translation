@@ -152,6 +152,10 @@ def sentence2tensor(lang: Lang, sentence):
     return torch.tensor(indices, dtype=torch.long, device=config.device).view(1, -1)
 
 
+def index2word(lang: Lang, idx):
+    return lang.index2word[idx] if idx < lang.n_words else 'unknown'
+
+
 def indices2sentence(lang: Lang, indices):
     '''
     索引转成句子，遇到EOS即停止
@@ -181,9 +185,11 @@ def pair2tensors(lang0: Lang, lang1: Lang, pair):
     return input_tensor, target_tensor
 
 
+# one-hot形式的词向量效果显然不好
 class Zh2EnDataset(Dataset):
     def __init__(self, path):
         super(Zh2EnDataset, self).__init__()
+
         self.input_lang, self.output_lang, self.pairs = get_data(path)
         self.n_pairs = len(self.pairs)
         self.input_indices = np.zeros((self.n_pairs, config.sentence_max_len), dtype=np.int_)
@@ -205,39 +211,3 @@ class Zh2EnDataset(Dataset):
         input_ids = torch.LongTensor(self.input_indices[index])
         output_ids = torch.LongTensor(self.output_indices[index])
         return input_ids, output_ids
-
-
-if __name__ == '__main__':
-    # def sentence2tensor(sentence: list, model):
-    #     word_tensors = [model.wv[word] for word in sentence if word in model.wv]
-    #     return np.mean(word_tensors, axis=0)
-    #
-    #
-    # def tensor2word(word_vec, model):
-    #     return model.wv.similar_by_vector(word_vec, topn=1)
-
-    # print(sentence_list)
-    # zh_model = Word2Vec()
-    # en_model = Word2Vec()
-
-    #
-    # zh_sentences = [sen for sen, _ in sentence_list]
-    # en_sentences = [sen for _, sen in sentence_list]
-    #
-    # zh_model.build_vocab(zh_sentences)
-    # en_model.build_vocab(en_sentences)
-    #
-    # zh_model.train(zh_sentences, total_examples=zh_model.corpus_count, epochs=zh_model.epochs)
-    # en_model.train(en_sentences, total_examples=en_model.corpus_count, epochs=en_model.epochs)
-    #
-    # zh_model.save('./checkpoints/zh_gensim_word2vec')
-    # en_model.save('./checkpoints/en_gensim_word2vec')
-    #
-    # en_model = gensim.models.Word2Vec.load('./checkpoints/en_gensim_word2vec')
-    # zh_model = gensim.models.Word2Vec.load('./checkpoints/zh_gensim_word2vec')
-    #
-    # teacher_forcing_ratio = 0.5
-
-    # src_lang, target_lang, pairs = get_data('../data/train_10k.jsonl')
-    # print(random.choice(pairs))
-    pass
