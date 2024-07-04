@@ -55,9 +55,9 @@ def train():
     '''
     best_bleu = -1.0
     if config.is_resume:
-        assert os.path.exists(config.resume_path)
+        assert os.path.exists(config.resume_file)
         print('resuming train......')
-        checkpoint = torch.load(config.resume_path)
+        checkpoint = torch.load(config.resume_file)
         best_bleu = checkpoint['best_bleu']
         config.start_epoch = checkpoint['epoch']
         encoder.load_state_dict(checkpoint['encoder_state_dict'])

@@ -28,15 +28,23 @@ class EncoderRNN(nn.Module):
 class BahdanauAttention(nn.Module):
     def __init__(self, hidden_size):
         super(BahdanauAttention, self).__init__()
+        # query矩阵，将query将hidden_size维度映射到hidden_size
         self.Wa = nn.Linear(hidden_size, hidden_size)
+        # key矩阵
         self.Ua = nn.Linear(hidden_size, hidden_size)
+        # 获取总的分数
         self.Va = nn.Linear(hidden_size, 1)
 
     def forward(self, query, keys):
-        scores = self.Va(torch.tanh(self.Wa(query) + self.Ua(keys)))
+        # 计算query和keys的加权和，通过tanh激活函数
+        energy = torch.tanh(self.Wa(query) + self.Ua(keys))
+        # 将加权和转换为分数
+        scores = self.Va(energy)
+        # 调整scores维度，使其适合后续的bmm操作
         scores = scores.squeeze(2).unsqueeze(1)
-
+        # 使用softmax计算权重（对最后一个维度操作）
         weights = F.softmax(scores, dim=-1)
+        # 使用batch matrix multiplication计算上下文向量并返回
         context = torch.bmm(weights, keys)
 
         return context, weights
@@ -63,36 +71,47 @@ class AttnDecoderRNN(nn.Module):
         decoder_outputs = []
         attentions = []
 
+        # 循环遍历每个时间步，直到达到句子的最大长度
         for i in range(config.sentence_max_len):
+            # 调用 forward_step 方法来处理当前时间步
             decoder_output, decoder_hidden, attn_weights = self.forward_step(
                 decoder_input, decoder_hidden, encoder_outputs
             )
             decoder_outputs.append(decoder_output)
             attentions.append(attn_weights)
 
-            # 决定使用teacher forcing还是free running策略
+            # 根据是否提供 target_tensor 决定使用教师强制还是自由运行策略
             if target_tensor is not None:
-                # Teacher forcing: Feed the target as the next input
-                decoder_input = target_tensor[:, i].unsqueeze(1)  # Teacher forcing
+                # 如果提供了 target_tensor，使用教师强制策略
+                decoder_input = target_tensor[:, i].unsqueeze(1)
             else:
-                # Without teacher forcing: use its own predictions as the next input
+                # Free running策略，使用解码器自身预测的 top-k 结果作为下一个输入
                 _, topi = decoder_output.topk(1)
-                decoder_input = topi.squeeze(-1).detach()  # detach from history as input
+                # 将 top-k 的结果进行 squeeze 操作去除单维度，然后 detach 操作防止梯度的累积
+                decoder_input = topi.squeeze(-1).detach()
 
+        # 将所有时间步的解码器输出合并成一个张量
         decoder_outputs = torch.cat(decoder_outputs, dim=1)
+
+        # 对合并后的解码器输出应用 log_softmax 函数，这通常用于多分类问题中，将输出转换为概率分布的对数形式
         decoder_outputs = F.log_softmax(decoder_outputs, dim=-1)
+
+        # 将所有时间步的注意力权重合并成一个张量
         attentions = torch.cat(attentions, dim=1)
 
         return decoder_outputs, decoder_hidden, attentions
 
     def forward_step(self, input, hidden, encoder_outputs):
+        # 将输入的词向量转为连续的向量表示
         embedded = self.dropout(self.embedding(input))
-
+        # 计算当前时间步的注意力权重，这些权重决定了编码器输出（通常是编码器的隐藏状态序列）在生成当前输出时的重要性
         query = hidden.permute(1, 0, 2)
         context, attn_weights = self.attention(query, encoder_outputs)
+        # 使用注意力权重生成上下文向量，该向量是编码器输出的加权和，反映了输入序列中与当前输出最相关的信息
         input_gru = torch.cat((embedded, context), dim=2)
-
+        # 循环神经网络单元GRU更新隐状态
         output, hidden = self.gru(input_gru, hidden)
+        # 预测单词
         output = self.out(output)
 
         return output, hidden, attn_weights

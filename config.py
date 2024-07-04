@@ -17,7 +17,7 @@ class Config:
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
         # 训练集路径
-        self.train_data_path = r'data/train_100k.jsonl'
+        self.train_data_path = r'data/train_10k.jsonl'
         # 验证集路径
         self.valid_data_path = r'data/valid.jsonl'
         # 测试集路径

@@ -49,6 +49,34 @@ class Lang:
         for word in sentence:
             self.add_word(word)
 
+    def filter_out(self):
+        '''
+        滤去低频词，重新编排词典
+        :return:
+        '''
+        words_to_keep = {word: count for word, count in self.word2count.items() if count >= 2}
+
+        # 新的词到索引映射
+        new_word2index = {}
+        # 新的索引到词映射
+        new_index2word = {config.SOS_token: 'SOS', config.EOS_token: 'EOS'}
+        # 新的词频统计
+        new_word2count = {}
+
+        # 重新分配索引
+        self.n_words = 2  # 从2开始，因为SOS和EOS已经占用了前两个索引
+
+        for word, count in words_to_keep.items():
+            new_word2index[word] = self.n_words
+            new_word2count[word] = count
+            new_index2word[self.n_words] = word
+            self.n_words += 1
+
+        # 更新词典
+        self.word2index = new_word2index
+        self.word2count = new_word2count
+        self.index2word = new_index2word
+
 
 def read_langs(path):
     # 中译英
@@ -191,6 +219,9 @@ class Zh2EnDataset(Dataset):
         super(Zh2EnDataset, self).__init__()
 
         self.input_lang, self.output_lang, self.pairs = get_data(path)
+        self.input_lang.filter_out()
+        self.output_lang.filter_out()
+
         self.n_pairs = len(self.pairs)
         self.input_indices = np.zeros((self.n_pairs, config.sentence_max_len), dtype=np.int_)
         self.output_indices = np.zeros((self.n_pairs, config.sentence_max_len), dtype=np.int_)
